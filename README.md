@@ -28,9 +28,11 @@ prepares an offer for the wrong date.
 5. **Tracks changes.** A tender is identified by its *procedure id*, so a
    correction notice with a new publication number is recognised as the same
    tender, and a moved deadline becomes its own alert.
-6. **Sends each alert at most once.** An alert is only marked as sent after the
-   digest was written, so a crash re-sends rather than loses it.
-7. Writes a daily digest (text + HTML) in English, German or Polish.
+6. **Sends each alert at most once, and never loses one.** Nothing is saved as
+   "known" until the digest was delivered (written, and e-mailed if asked). A
+   failed e-mail leaves the changes pending, and the next run reports them again.
+7. Writes a daily digest (text + HTML) in English, German or Polish and can
+   **e-mail** it (SMTP, settings from environment variables).
 
 ## Run it (no network needed)
 
@@ -44,10 +46,12 @@ python3 -m tenderradar run --profile fixtures/profile_cleaning_brandenburg.json 
     --fixtures fixtures/day1 --lang de
 ```
 
-Live data from TED (needs internet):
+Live data from TED (needs internet), e-mailed to the owner:
 
 ```
-python3 -m tenderradar run --profile fixtures/profile_cleaning_brandenburg.json --source ted --days 3
+export SMTP_HOST=smtp.example.com SMTP_USER=me@example.com SMTP_PASSWORD=... MAIL_FROM=me@example.com
+python3 -m tenderradar run --profile fixtures/profile_cleaning_brandenburg.json \
+    --source ted --days 3 --lang de --mail-to boss@example.com
 ```
 
 ## Layout
@@ -58,10 +62,11 @@ python3 -m tenderradar run --profile fixtures/profile_cleaning_brandenburg.json 
 | `tenderradar/extract.py` | Deadline and requirements from document text, with page numbers and confidence |
 | `tenderradar/match.py` | Profile matching with reasons and rejections |
 | `tenderradar/store.py` | SQLite state: known procedures, change events, sent alerts |
-| `tenderradar/pipeline.py` | One run: parse → enrich → match → detect changes |
+| `tenderradar/pipeline.py` | One run: parse → enrich → match → detect changes; `commit` after delivery |
 | `tenderradar/digest.py` | Text/HTML digest in en/de/pl |
+| `tenderradar/mailer.py` | SMTP e-mail (STARTTLS or SSL), connection injectable |
 | `fixtures/make_fixtures.py` | Generates the synthetic notices, documents and profile for the offline demo |
-| `tests/` | 21 tests (extraction, matching, change detection, pagination, end-to-end demo) |
+| `tests/` | 25 tests (extraction, matching, change detection, pagination, e-mail, failed-delivery behaviour, end-to-end demo) |
 
 ## Honest limits (v1)
 
@@ -73,7 +78,8 @@ python3 -m tenderradar run --profile fixtures/profile_cleaning_brandenburg.json 
   digest uses notice data only. Document reading works on text you give it.
 - **No OCR engine is bundled.** A scan without a text layer is flagged, not
   silently ignored; plug your OCR output into `extract.enrich`.
-- The digest is written to files; sending it by e-mail is the next step.
+- E-mail follows standard SMTP and is tested with a fake server connection; it
+  has not been run against a live mail server from here.
 - Only TED (above-threshold EU notices). National portals can be added as
   further sources behind the same `parse_notice` shape.
 

@@ -34,32 +34,33 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.executescript(_SCHEMA)
 
-    def upsert(self, n: Notice) -> tuple[str, Optional[str]]:
-        """Record the notice. Returns (event, previous_deadline)."""
+    def classify(self, n: Notice) -> tuple[str, Optional[str]]:
+        """What happened to this tender since we last saved it? Read-only.
+        Returns (event, previous_deadline)."""
         row = self.db.execute(
             "SELECT publication_number, deadline FROM procedures WHERE procedure_id=?",
             (n.procedure_id,),
         ).fetchone()
-        new_deadline = n.deadline_key()
-        with self.db:
-            if row is None:
+        if row is None:
+            return NEW, None
+        old_pub, old_deadline = row
+        if old_deadline != n.deadline_key():
+            return DEADLINE_CHANGED, old_deadline
+        if old_pub != n.publication_number:
+            return AMENDED, old_deadline
+        return UNCHANGED, None
+
+    def upsert(self, n: Notice) -> tuple[str, Optional[str]]:
+        """Classify, then save the notice as the new known state."""
+        event, previous = self.classify(n)
+        if event != UNCHANGED:
+            with self.db:
                 self.db.execute(
-                    "INSERT INTO procedures VALUES (?,?,?,?)",
-                    (n.procedure_id, n.publication_number, n.title, new_deadline),
+                    "INSERT INTO procedures VALUES (?,?,?,?) ON CONFLICT(procedure_id) DO UPDATE SET "
+                    "publication_number=excluded.publication_number, title=excluded.title, deadline=excluded.deadline",
+                    (n.procedure_id, n.publication_number, n.title, n.deadline_key()),
                 )
-                return NEW, None
-            old_pub, old_deadline = row
-            if old_deadline != new_deadline:
-                event = DEADLINE_CHANGED
-            elif old_pub != n.publication_number:
-                event = AMENDED
-            else:
-                return UNCHANGED, None
-            self.db.execute(
-                "UPDATE procedures SET publication_number=?, title=?, deadline=? WHERE procedure_id=?",
-                (n.publication_number, n.title, new_deadline, n.procedure_id),
-            )
-            return event, old_deadline
+        return event, previous
 
     def was_sent(self, key: str) -> bool:
         return self.db.execute("SELECT 1 FROM alerts_sent WHERE key=?", (key,)).fetchone() is not None

@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import ted
+from . import mailer, ted
 from .digest import render_html, render_text
 from .extract import split_pages
 from .models import TZ, Profile
-from .pipeline import run
+from .pipeline import commit, run
 from .store import Store
 
 
@@ -35,6 +36,9 @@ def main(argv=None) -> int:
     r.add_argument("--db", default="tenderradar.db")
     r.add_argument("--out", default="out")
     r.add_argument("--lang", choices=["en", "de", "pl"], default="en")
+    r.add_argument("--mail-to", help="comma-separated recipients; SMTP settings come from the environment: "
+                   "SMTP_HOST, SMTP_PORT (587), SMTP_USER, SMTP_PASSWORD, MAIL_FROM")
+    r.add_argument("--mail-empty", action="store_true", help="also send a digest when nothing is new")
     args = p.parse_args(argv)
 
     profile = Profile.from_dict(json.loads(Path(args.profile).read_text(encoding="utf-8")))
@@ -54,10 +58,26 @@ def main(argv=None) -> int:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "digest.txt").write_text(render_text(report, args.lang), encoding="utf-8")
-    (out / "digest.html").write_text(render_html(report, args.lang), encoding="utf-8")
-    # Written before marking as sent: a crash in between re-sends, never loses.
-    store.mark_sent(report.keys)
+    text, html = render_text(report, args.lang), render_html(report, args.lang)
+    (out / "digest.txt").write_text(text, encoding="utf-8")
+    (out / "digest.html").write_text(html, encoding="utf-8")
+
+    if args.mail_to and (report.items or args.mail_empty):
+        try:
+            msg = mailer.build_message(
+                f"TenderRadar: {len(report.items)} new/changed tender(s)", text, html,
+                os.environ.get("MAIL_FROM", os.environ.get("SMTP_USER", "tenderradar@localhost")),
+                [a.strip() for a in args.mail_to.split(",") if a.strip()],
+            )
+            mailer.send(msg, os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", "587")),
+                        os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASSWORD"))
+        except Exception as e:  # nothing is marked as sent: the next run tries again
+            print(f"e-mail failed ({type(e).__name__}: {e}); alerts stay pending")
+            store.close()
+            return 1
+    # Marked only after the digest was written (and e-mailed, if asked):
+    # a crash in between re-sends, never loses.
+    commit(store, report)
     store.close()
     print(f"{len(report.items)} to report, {report.rejected} filtered out -> {out}/digest.txt")
     return 0

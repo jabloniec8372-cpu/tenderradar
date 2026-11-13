@@ -24,7 +24,7 @@ class Item:
 class Report:
     items: list[Item] = field(default_factory=list)
     rejected: int = 0
-    keys: list[str] = field(default_factory=list)  # pass to Store.mark_sent after delivery
+    keys: list[str] = field(default_factory=list)  # handed to commit() after delivery
 
 
 def run(
@@ -34,9 +34,9 @@ def run(
     now: datetime,
     docs: Optional[Callable[[Notice], Optional[list[str]]]] = None,
 ) -> Report:
-    """Alerts are only *recorded* as sent via store.mark_sent(report.keys), which
-    the caller does after the digest was delivered. A crash before that means
-    the next run re-sends instead of silently losing an alert."""
+    """Nothing is saved here. Call commit(store, report) only after the digest
+    was delivered. A crash or failed e-mail before that means the next run sees
+    the same changes again, instead of silently losing an alert."""
     report = Report()
     for raw in raw_notices:
         notice = parse_notice(raw)
@@ -45,7 +45,7 @@ def run(
         if not match.matched:
             report.rejected += 1
             continue
-        event, previous = store.upsert(notice)
+        event, previous = store.classify(notice)  # read-only: saved by commit()
         if event == UNCHANGED:
             continue
         key = f"{notice.procedure_id}|{event}|{notice.deadline_key()}"
@@ -55,3 +55,10 @@ def run(
         report.keys.append(key)
     report.items.sort(key=lambda i: i.notice.deadline_key() or "9999")
     return report
+
+
+def commit(store: Store, report: Report) -> None:
+    """Save the new known state and mark the alerts as sent. Call after delivery."""
+    for item in report.items:
+        store.upsert(item.notice)
+    store.mark_sent(report.keys)

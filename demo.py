@@ -15,7 +15,7 @@ from pathlib import Path
 from tenderradar.cli import _fixture_source
 from tenderradar.digest import render_text
 from tenderradar.models import TZ, Profile
-from tenderradar.pipeline import run
+from tenderradar.pipeline import commit, run
 from tenderradar.store import Store
 
 HERE = Path(__file__).parent
@@ -35,7 +35,7 @@ def ensure_fixtures() -> None:
 def day(label: str, folder: str, now: datetime, store: Store, profile: Profile, lang: str = "en") -> str:
     raw, docs = _fixture_source(FIX / folder)
     report = run(raw, profile, store, now, docs)
-    store.mark_sent(report.keys)
+    commit(store, report)
     head = f"=== {label} ({now:%a %d.%m.%Y}) - {len(report.items)} to report, {report.rejected} filtered out ===\n"
     return head + "\n" + render_text(report, lang)
 
