@@ -33,6 +33,7 @@ class Notice:
     published: Optional[str]  # YYYY-MM-DD
     deadline: Optional[datetime]
     url: str
+    pdf_url: str = ""  # the notice as PDF on TED, if the API gave a link
     doc_deadline: Optional[Finding] = None
     requirements: list[Finding] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)  # reasons for "to be checked"

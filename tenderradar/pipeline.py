@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable, Optional
 
+from .docs import DocsError
 from .extract import enrich
 from .match import Match, evaluate
 from .models import Notice, Profile
@@ -40,7 +41,12 @@ def run(
     report = Report()
     for raw in raw_notices:
         notice = parse_notice(raw)
-        enrich(notice, docs(notice) if docs else None)
+        try:
+            pages = docs(notice) if docs else None
+        except DocsError:
+            pages = None
+            notice.flags.append("DOCS_UNAVAILABLE")
+        enrich(notice, pages)
         match = evaluate(notice, profile, now)
         if not match.matched:
             report.rejected += 1

@@ -113,6 +113,8 @@ def parse_notice(raw: dict) -> Notice:
             continue  # unparseable value: treated as "no deadline", flagged later
     links = raw.get("links", {}).get("htmlDirect", {})
     url = _pick({k.casefold(): v for k, v in links.items()}) if links else ""
+    pdf_links = raw.get("links", {}).get("pdf", {})
+    pdf_url = _pick({k.casefold(): v for k, v in pdf_links.items()}) if pdf_links else ""
     return Notice(
         procedure_id=_pick(raw.get("procedure-identifier")) or pn,
         publication_number=pn,
@@ -123,4 +125,5 @@ def parse_notice(raw: dict) -> Notice:
         published=str(raw.get("publication-date", ""))[:10] or None,
         deadline=min(deadlines) if deadlines else None,
         url=url or f"https://ted.europa.eu/en/notice/-/detail/{pn}",
+        pdf_url=pdf_url,
     )

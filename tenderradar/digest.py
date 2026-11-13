@@ -25,6 +25,7 @@ L = {
             "DEADLINE_UNCERTAIN": "deadline in document was read with OCR-style repair",
             "DEADLINE_MISMATCH": "deadline in document differs from the notice data",
             "DEADLINE_MISSING": "no deadline found",
+            "DOCS_UNAVAILABLE": "documents could not be downloaded or read",
         },
     },
     "de": {
@@ -45,6 +46,7 @@ L = {
             "DEADLINE_UNCERTAIN": "Frist im Dokument nur unsicher gelesen (OCR-Korrektur)",
             "DEADLINE_MISMATCH": "Frist im Dokument weicht von den Bekanntmachungsdaten ab",
             "DEADLINE_MISSING": "keine Frist gefunden",
+            "DOCS_UNAVAILABLE": "Dokumente konnten nicht geladen oder gelesen werden",
         },
     },
     "pl": {
@@ -65,6 +67,7 @@ L = {
             "DEADLINE_UNCERTAIN": "termin w dokumencie odczytany niepewnie (korekta OCR)",
             "DEADLINE_MISMATCH": "termin w dokumencie różni się od danych ogłoszenia",
             "DEADLINE_MISSING": "nie znaleziono terminu",
+            "DOCS_UNAVAILABLE": "nie udało się pobrać lub odczytać dokumentów",
         },
     },
 }

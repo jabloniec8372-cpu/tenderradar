@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import mailer, ted
+from .docs import make_provider
 from .digest import render_html, render_text
 from .extract import split_pages
 from .models import TZ, Profile
@@ -36,6 +37,8 @@ def main(argv=None) -> int:
     r.add_argument("--db", default="tenderradar.db")
     r.add_argument("--out", default="out")
     r.add_argument("--lang", choices=["en", "de", "pl"], default="en")
+    r.add_argument("--with-docs", action="store_true",
+                   help="TED: also download each notice PDF and read deadline/requirements (needs pdftotext)")
     r.add_argument("--mail-to", help="comma-separated recipients; SMTP settings come from the environment: "
                    "SMTP_HOST, SMTP_PORT (587), SMTP_USER, SMTP_PASSWORD, MAIL_FROM")
     r.add_argument("--mail-empty", action="store_true", help="also send a digest when nothing is new")
@@ -51,7 +54,7 @@ def main(argv=None) -> int:
     else:  # live TED API
         since = (now - timedelta(days=args.days)).strftime("%Y%m%d")
         raw = ted.search(ted.build_query("DEU", since))
-        docs = None  # v1: documents are not downloaded from TED
+        docs = make_provider() if args.with_docs else None
 
     store = Store(args.db)
     report = run(raw, profile, store, now, docs)
