@@ -12,7 +12,7 @@ from tenderradar.digest import render_text
 from tenderradar.extract import enrich, find_deadline, find_requirements, split_pages
 from tenderradar.match import evaluate
 from tenderradar.models import TZ, Notice, Profile
-from tenderradar.pipeline import run
+from tenderradar.pipeline import commit, run
 from tenderradar.store import AMENDED, DEADLINE_CHANGED, NEW, UNCHANGED, Store
 
 NOW = datetime(2026, 11, 13, 18, 30, tzinfo=TZ)
@@ -146,12 +146,17 @@ class PipelineTests(unittest.TestCase):
         s = Store()
         first = run(self.RAW, PROFILE, s, NOW)
         self.assertEqual(len(first.items), 1)
-        # crash before delivery: nothing marked, so the next run must not lose it
+        # crash before delivery: nothing committed, so the next run must not lose it
         s2 = Store()
         again = run(self.RAW, PROFILE, s2, NOW)
         self.assertEqual(len(again.items), 1)
-        s.mark_sent(first.keys)
+        commit(s, first)
         self.assertEqual(run(self.RAW, PROFILE, s, NOW).items, [])
+
+    def test_failed_delivery_does_not_swallow_the_change(self):
+        s = Store()
+        run(self.RAW, PROFILE, s, NOW)  # run() alone must not change what the store knows
+        self.assertEqual(len(run(self.RAW, PROFILE, s, NOW).items), 1)
 
 
 class DemoTests(unittest.TestCase):
@@ -167,6 +172,61 @@ class DemoTests(unittest.TestCase):
     def test_other_languages_render(self):
         self.assertIn("FRIST GEÄNDERT", demo.main("de"))
         self.assertIn("ZMIANA TERMINU", demo.main("pl"))
+
+
+class MailTests(unittest.TestCase):
+    class FakeSMTP:
+        log = []
+
+        def __init__(self, host, port):
+            self.log = type(self).log = [("connect", host, port)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self, context=None):
+            self.log.append(("starttls",))
+
+        def login(self, user, password):
+            self.log.append(("login", user))
+
+        def send_message(self, msg):
+            self.log.append(("send", msg["To"]))
+
+    def test_message_has_text_and_html_parts(self):
+        from tenderradar.mailer import build_message
+        m = build_message("S", "plain", "<b>html</b>", "a@x.de", ["b@x.de", "c@x.de"])
+        self.assertEqual(m["To"], "b@x.de, c@x.de")
+        self.assertEqual([p.get_content_type() for p in m.iter_parts()], ["text/plain", "text/html"])
+
+    def test_starttls_login_send_in_order(self):
+        from tenderradar import mailer
+        m = mailer.build_message("S", "t", "h", "a@x.de", ["b@x.de"])
+        mailer.send(m, "smtp.x.de", 587, "u", "p", smtp_factory=self.FakeSMTP)
+        self.assertEqual([e[0] for e in self.FakeSMTP.log], ["connect", "starttls", "login", "send"])
+
+    def test_cli_mail_failure_keeps_alerts_pending(self):
+        import os
+        import tempfile
+        from unittest import mock
+        from tenderradar import cli
+        demo.ensure_fixtures()
+        d = Path(tempfile.mkdtemp())
+        argv = ["run", "--profile", str(demo.FIX / "profile_cleaning_brandenburg.json"),
+                "--fixtures", str(demo.FIX / "day2"), "--db", str(d / "t.db"), "--out", str(d / "out"),
+                "--mail-to", "boss@x.de"]
+        env = {"SMTP_HOST": "smtp.x.de"}
+        with mock.patch.dict(os.environ, env), mock.patch("tenderradar.cli.mailer.send", side_effect=OSError("down")):
+            self.assertEqual(cli.main(argv), 1)
+        with mock.patch.dict(os.environ, env), mock.patch("tenderradar.cli.mailer.send") as ok:
+            self.assertEqual(cli.main(argv), 0)  # the same alerts are sent now
+            self.assertEqual(ok.call_count, 1)
+        with mock.patch.dict(os.environ, env), mock.patch("tenderradar.cli.mailer.send") as again:
+            self.assertEqual(cli.main(argv), 0)
+            again.assert_not_called()  # nothing new: no mail
 
 
 if __name__ == "__main__":
